@@ -1,0 +1,248 @@
+---
+title: Do sex and education background in different region influence the selection in the Canadian election
+author: "Yifu Guo"
+date: "Dec,22,2020"
+output:
+    pdf_document: 
+    df_print: paged
+    fig_caption: yes
+    number_sections: true
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(cesR)
+library(labelled)
+library(haven)
+ces2019_web <- read_dta('/Users/michael/Desktop/sta304/ces2019_web.dta')
+ces2019_web <- to_factor(ces2019_web)
+head(ces2019_web)
+library(tidyverse)
+#census data
+census_data <- read_csv('98-402-X2016010-T1-CANPR-eng.csv')
+educ_cols_count <- c( 
+                   "Secondary (high) school diploma or equivalency certificate (2016 counts)",
+                   "Apprenticeship or trades certificate or diploma (2016 counts)",
+                   "College, CEGEP or other non-university certificate or diploma (2016 counts)",
+                   "University certificate, diploma or degree at bachelor level or above (2016 counts)")
+pivot_data  <- select(pivot_longer(census_data, cols=educ_cols_count, 
+names_to='education',values_to="total_count"), "Age","Geographic_name", "Sex" , "education", "total_count")
+pivot_census_data <- pivot_data %>%
+  filter(Age != "All ages, 15-plus" & Sex != "Both sexes" & Geographic_name != "Canada")
+
+
+#survey data
+survey_data <- ces2019_web %>%
+  select(cps19_gender,
+         cps19_province,
+         cps19_education,
+         cps19_v_likely,
+         cps19_votechoice,
+         cps19_citizenship,
+         )
+reduce_survey_data <- survey_data %>%
+  filter(cps19_votechoice != "Don't know/ Prefer not to answer",
+         cps19_v_likely == "Certain to vote" |
+         cps19_v_likely == "I voted in an advance poll",
+         cps19_gender == "A woman" | 
+         cps19_gender == "A man",
+         cps19_education != "Don't know/ Prefer not to answer",
+         cps19_votechoice == "Conservative Party" |
+         cps19_votechoice == "Liberal Party",
+         cps19_citizenship == "Canadian citizen")
+pivot_survey_data <- na.omit(reduce_survey_data)
+pivot_census_data <- na.omit((pivot_census_data))
+
+#map sex column
+pivot_survey_data <- rename(pivot_survey_data,Sex = cps19_gender)
+pivot_survey_data$Sex<-ifelse(pivot_survey_data$Sex=="A woman","Female","Male")
+
+#map province column
+#census
+pivot_census_data <- pivot_census_data %>% 
+  mutate(province = case_when(Geographic_name == "Ontario"~"ON",
+                              Geographic_name == "British Columbia" ~ "BC",
+                              Geographic_name == "Alberta" ~ "AB",
+                              Geographic_name == "Saskatchewan" ~ "SK",
+                              Geographic_name == "Quebec" ~ "QC",
+                              Geographic_name == "Manitoba" ~ "MB",
+                              Geographic_name == "Newfoundland and Labrador" ~ "NL",
+                              Geographic_name == "Nova Scotia" ~ "NS",
+                              Geographic_name == "New Brunswick" ~ "NB",
+                              Geographic_name == "Prince Edward Island" ~ "PE",
+                              Geographic_name == "Northwest Territories" ~ "NT",
+                              Geographic_name == "Yukon" ~ "YT",
+                              Geographic_name == "Nunavut" ~ "NU"))
+ 
+#survey
+pivot_survey_data <- pivot_survey_data %>% 
+  mutate(province = case_when(cps19_province == "Ontario"~"ON",
+                              cps19_province == "British Columbia" ~ "BC",
+                              cps19_province == "Alberta" ~ "AB",
+                              cps19_province == "Saskatchewan" ~ "SK",
+                              cps19_province == "Quebec" ~ "QC",
+                              cps19_province == "Manitoba" ~ "MB",
+                              cps19_province == "Newfoundland and Labrador" ~ "NL",
+                              cps19_province == "Nova Scotia" ~ "NS",
+                              cps19_province == "New Brunswick" ~ "NB",
+                              cps19_province == "Prince Edward Island" ~ "PE",
+                              cps19_province == "Northwest Territorie" ~ "NT",
+                              cps19_province == "Yukon" ~ "YT",
+                              cps19_province == "Nunavut" ~ "NU"))
+                           
+
+
+
+#map education column
+pivot_survey_data <- rename(pivot_survey_data, education = cps19_education)
+#survey
+pivot_survey_data$education <- as.character(pivot_survey_data$education)
+
+pivot_survey_data$education[pivot_survey_data$education %in% c("Master's degree", "Some university", "Bachelor's degree", "Professional degree or doctorate")] <- "Degree of Bachelor or above"
+
+pivot_survey_data$education[pivot_survey_data$education %in% c("Completed secondary/ high school", "Some secondary/ high school", "Completed elementary school", "Some elementary school", "No schooling")] <- "High Shcool or below"
+
+pivot_survey_data$education[pivot_survey_data$education %in% c("Completed secondary/ high school", "Some secondary/ high school", "Some technical, community college, CEGEP, College Classique", "Completed technical, community college, CEGEP, College Classique")] <- "Degree of college or Apprenticeship"
+
+#census
+pivot_census_data$education <- as.character(pivot_census_data$education)
+pivot_census_data$education[pivot_census_data$education %in% c("Secondary (high) school diploma or equivalency certificate (2016 counts)")] <- "High Shcool or below"
+
+pivot_census_data$education[pivot_census_data$education %in% c("Apprenticeship or trades certificate or diploma (2016 counts)","College, CEGEP or other non-university certificate or diploma (2016 counts)")] <- "Degree of college or Apprenticeship"
+
+pivot_census_data$education[pivot_census_data$education == "University certificate, diploma or degree at bachelor level or above (2016 counts)"] <- "Degree of Bachelor or above" 
+
+na.omit(pivot_census_data)
+na.omit(pivot_survey_data)
+
+# cell built
+pivot_survey_data$cell <- paste(pivot_survey_data$Sex,pivot_survey_data$education)
+pivot_census_data$cell <- paste(pivot_census_data$Sex, pivot_census_data$education)
+var_survey <- c("Sex", "education", "cell", "cps19_votechoice","province")
+var_census <- c("Sex", "education", "cell", "province")
+pivot_survey_data[var_survey] <- lapply(pivot_survey_data[var_survey],factor)
+pivot_census_data[var_census] <- lapply(pivot_census_data[var_census],factor)
+
+pivot_survey_data$cps19_votechoice <- relevel(pivot_survey_data$cps19_votechoice, ref = "Conservative Party")
+
+```
+## Abstract
+
+In this report, I will focus on the B option, and my topic is to do different education levels and sex in different regions of Canada will influence the choice in the election? In order to find the impact of these, I use the data from https://www12.statcan.gc.ca/census-recensement/2016/dp-pd/hlt-fst/edu-sco/index-eng.cfm with different region, degree and sex as my census data set. In addition, the data from CES is used as the survey data. I would like to build the Multilevel regression with poststratification to estimate if these factors will influence the choice in the election.
+
+**keyword**:Multilevel regression, Canadian election, poststratification, logistic model.
+
+
+## Introduction
+
+In the past 2019, the 43rd Canadian federal election has just ended. The Liberal Party, led by current Prime Minister Justin Trudeau, won 157 seats to form a minority government but lost the majority of seats they won in the 2015 election. The Liberal Party lost to the Conservative Party. This only marked the second time in Canadian history that the governing party established a government, and the national vote rate was less than 35% of the country. In Canadian history, the Liberal Party has the lowest percentage of the ruling party’s national popular vote. ^[1]^.Moreover, there are various parties in Canada as well, the liberal party led by Justin Trudeau, the Conservative party led by Andrew Scheer, New Democratic Party led by Jagmeet Singh, Bloc Québécois led by Yves-François Blanchet and others. In addition, the competition between the Liberal Party and the Conservative Party is fierce. In the 2019 election, the liberal party and Conservative Party respectively obtain 157 seats and 121 seats, which are much more than other parties. It is hard for us who are not in politics to understand why it can become the lower percentage part in Canadian history, however, we can analyze it from a statistical aspect.
+
+Using the Multilevel regression and logistic model by R to analyze the problem about the election is a good choice since there are many sorts of independent variables related to this issue, for example, the election data set contains the group, regions, income degree and race. Moreover, it is obvious that there are more categorical variables since the numerical variable such as weight and height hardly influence the choice of voters. In this case, the logistic model is supposed to be used. However, there are countless voters, it is hard for us to analyze all of them. What we are supposed to do is using the study population to estimate the target population. So in the report, I would like to select and filter the essential variables and observations from both the census data set and the survey data set. Baing on the survey data, then build several models and choose the most reasonable one to build the logistic model. As long as the outcome of the model is knowm, it is not hard to draw a conclusion about the target population.
+
+
+## Methodology
+
+### data:
+There are two data that I used in the report. The first one is the CES data of 2019 from http://www.ces-eec.ca/, which is used as the survey data set. The second data set https://www12.statcan.gc.ca/census-recensement/2016/dp-pd/hlt-fst/edu-sco/index-eng.cfmwith that I used is the education highlight table in the census of 2016 as my census data. The reason why I use census data in 2016 as my data is that the leader of the Liberal party was Justin Trudeau too^[2]^, and he was the prime minister and I did not find appropriate data besides this one. Thus, I assume that the vote for the liberal party does not change a lot.  
+
+There are 37822 observations and 620 variable for the survey data with many useless variables for me and the amount of NA value. For the census data, it counts the total number of people who have a different degree with different age. Also, the data respectively count the number of people of all age groups. Then I clean the census to a cleaner pivot data by removing all age and both sex to make sure that sex is a binary option. I select sex, education, province, vote_choice, citizenship, and vote or not from the survey data. Because only the Canadian citizens are entitled to vote, we can use the citizenship or not and vote or not select the citizen that 100% would go to vote, which can improve our accuracy of the analysis. After cleaning both census and survey data. I map their sex, education, and province column to make sure that their factor variables are the same. Moreover, I divide the party into only the liberal party and Conservative Party as I mentioned in introduction, these two are the major party in the election. After cleaning the variable and observing, I remove all the NA values. The most basic survey data called pivot_survey_data and census data, pivot_census_data are done. Finally, basing on these two data set, I create cell by using variable education and sex
+
+There is a table below, which provides baseline characteristics of the data.
+
+```{r}
+library(tableone)
+library(survival)
+CreateTableOne(data = pivot_census_data)
+```
+### Model
+I will be using a random intercept logistic regression model to model the probability of voting for the liberal party via rstudio, which will be an additive model accounting for the province, sex and education, and all of the variables are categorical. Thus they will be coded as indicator variables. In specific, education is categorized into 3 groups: Degree of Bachelor or above     High Shcool or below, degree of college or Apprenticeship. Sex is categorized into 2 groups: male, female. Also, the province is also categorized into 13 groups. The reason why I choose these variables is that all of them are well defined in both census data and survey data, and they are strongly related to the topic that I focus on.
+
+Since the observation sizes are huge, which needs to take a long time to compute, then I randomly select 1000 observations from pivot_survey_data. Then use the data randomly to select from the original data set to build 3 models. In the 1st model, I used province as the random effect, while I used sex and education as a random effect in 2ed and 3rd model. Then comparing their AIC and BIC, the AIC and BIC for model 2 is 1284.7, 1363.2, which is less that another 2 model, then we choose model2 as the most reasonable model. After that, using the accuracy to confirm the model that we choose, which is 0.704. In other words, the model that we choose is great
+
+
+
+
+### Post-Stratification
+In order to estimate the percentage of voters who vote for the liberal party, I have had the probability that voters would vote for the liberal party in the survey data. Then I create a combination of education, age, province, cell. Thus, we can estimate the percentage vote for the liberal party. Then we done, we can analyze our topic basing on these.
+
+## result
+I use the sex as random in model2, then the random intercept logistic refreesion that I have in survey data is: 
+$$ y = \beta_0 I_{Sex=male}+
+\beta_1  I_{university} +
+\beta_2  I_{college} +
+\beta_3  I_{high_school} +
+\beta_4  I_{province_k} \epsilon$$
+
+Where y means the proportion vote for liberal party, and $\beta_0$ represents the intercept of the model for indicator female or male, moreover, $\beta_1$ to $\beta_4$ is the indicator variable as well. For example, it will increase the probability when a male in province YT with college degree.
+
+After the combination of education, province, a cell in census data by observing the vote_prob_liberal, we find that the male from SK province with a degree of high school or below has the smallest probability vote for the liberal party. While the female from YT province with a degree of bachelor or higher is a willing vote for the liberal party. When we ignore the province for the voters, more people with a degree of bachelor or higher have a higher probability to vote liberal party. Therefore, in my opinion, sex and education or the cell of sex and education might have an influence on voting. However, there is still a province that the voters live also influence the parties that they choose.
+```{r}
+# Creating the Model
+library(lme4)
+library(brms)
+library(tidybayes)
+library(caret)
+library(ROCR)
+library(broom)
+library(pROC)
+
+set.seed(3)
+rows <- sample(1:nrow(pivot_survey_data), 1000, replace = FALSE)
+sample_survey_data <- pivot_survey_data[rows,]
+
+model1 <- glmer(cps19_votechoice~(1+province|cell) + Sex +education,
+                     data = sample_survey_data, 
+                     family=binomial)
+summary(model1)
+model2 <- glmer(cps19_votechoice~(1+ Sex|cell)  +education +province,
+                     data = sample_survey_data, 
+                     family=binomial)
+summary(model2)
+model3 <- glmer(cps19_votechoice~(1+ education|cell)  +Sex,
+                     data = sample_survey_data, 
+                     family=binomial)
+summary(model3)
+
+#less BIC and AIC for mode2
+prob <- predict(model2, type = c('response'))
+result <- ifelse(prob >= 0.5, "Liberal Party","Conservative Party")
+survey_data_result <- cbind(sample_survey_data,result)
+roc <- roc(survey_data_result$cps19_votechoice, prob)
+auc(roc)
+plot(roc, auc.polygon=TRUE, print.auc = TRUE,asp = NA)
+
+filter_census <- pivot_census_data %>%
+  filter(province != "NT",
+         province != "NU")
+  
+vote_prob_liberal <- predict(model2,filter_census[,c("Sex","education","province","cell")],type="response")
+census_data_result <- cbind(filter_census,vote_prob_liberal)
+census_data_result
+```
+
+## discussion
+### summary
+In this report, I use the data from CES data as my survey data and the data of education table from Canada statistic as my census data, and select the variable and filter the observations to build several multiple linear regression models with all categorical variable. By checking the AIC and BIC, to choose the most reasonable model with accuracy check. After that, based on the model that I have and the census data to estimate the probability that the voters vote for liberal parties in the target population. Finally, I come out with multiple linear regression and the combination of census data and probability that vote for the liberal party.
+
+### conclusion
+According to the result that we have, the education background, sex and the cell of gender and education background might have an influence on the voting. However, the province that you live in also might influence the choice that the citizen make.
+
+If the country with election policy has the same issue we can not conclude, however, I think no matter what choice you make is not supposed influence by others. Everyone should be responsible for their own behaviour
+
+### weakness
+I randomly select 1000 observations from 14943 observations because of the issue of the hardware, which might influence the accuracy of the result that we have.
+
+Scurvy data is not enough and there must be other variables that might influence the choice of the election, however, I did not find better census data to contain more similar and related variable, which also result in the cell is not detailed enough
+
+Although the prime minister did not change in 2019, however, there must be many people change their mind, data is not significantly time-sensitive
+
+
+
+## Reference
+
+[1]Federal election 2019 live results. (2020). Retrieved 20 December 2020, from https://newsinteractives.cbc.ca/elections/federal/2019/results/
+ 
+[2]CBCNews.ca Canada Votes 2015 | Canada Election results. (2020). Retrieved 20 December 2020, from https://www.cbc.ca/includes/federalelection/dashboard/
+
+[3]Education highlight table
+https://www12.statcan.gc.ca/census-recensement/2016/dp-pd/hlt-fst/edu-sco/index-eng.cfm
